@@ -861,8 +861,35 @@
     50% { filter: brightness(2.2) contrast(1.5); }
   }
 
-  /* No shrink animation — instant cut to takeover */
-
+  /* ── TV IN-TAKEOVER CINEMATIC ── */
+  #cinematic-tv-wrap {
+    position: fixed; inset: 0; z-index: 260;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    perspective: 1600px;
+    opacity: 0; pointer-events: none;
+    /* opacity/pointerEvents controlled by JS, not CSS classes */
+  }
+  #cinematic-tv-wrap .tv {
+    width: min(520px, 78vw);
+    transform: none;
+    filter: drop-shadow(0 30px 60px rgba(0,0,0,0.98));
+  }
+  #signal-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 20px;
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+    text-shadow: 0 0 24px rgba(0,0,0,0.98);
+    /* opacity controlled by JS */
+  }
+  @keyframes signalBlink {
+    0%, 75% { opacity: 1; }
+    76%, 100% { opacity: 0.2; }
+  }
 
   @media (max-width: 980px) {
     body { overflow-y: auto; }
@@ -1012,6 +1039,45 @@
 </style>
 
 
+<!-- ─── CINEMATIC TV (outside .stage, escapes body.takeover opacity cascade) ─── -->
+<div id="cinematic-tv-wrap" aria-hidden="true">
+  <div class="tv show-scene" id="cinematic-tv">
+    <div class="cabinet"></div>
+    <div class="front">
+      <div class="bezel">
+        <div class="crt-well">
+          <div class="screen">
+            <div class="screen-base"></div>
+            <div class="tv-scene">
+              <video id="cinematic-vid" src="assets/swing-scene.mp4" muted loop playsinline
+                style="width:100%;height:100%;object-fit:cover;display:block;filter:saturate(0.45) brightness(0.75) contrast(1.15);"></video>
+            </div>
+            <div class="static-layer"></div>
+            <div class="roll-band"></div>
+            <div class="ch-label">CH 03 ▌</div>
+            <div class="ch-right">REC ●</div>
+            <div class="scanlines"></div>
+            <div class="crt-overlay"></div>
+            <div class="crt-glare"></div>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="knob-row">
+          <div class="knob"></div>
+          <div class="knob-led"></div>
+        </div>
+        <div class="knob-row">
+          <div class="knob"></div>
+          <div class="knob-led dim"></div>
+        </div>
+        <div class="grille"></div>
+      </div>
+    </div>
+  </div>
+  <p id="signal-text">Signal Lost · Searching for a New One</p>
+</div>
+
 <!-- flicker overlay (used during transitions) -->
 <div id="flicker-video" aria-hidden="true">
   <video id="flicker-video-el" src="assets/flicker.mp4" muted playsinline preload="auto"></video>
@@ -1027,8 +1093,8 @@
     </a>
   </div>
   <div class="center-text">
-    <h2>Horror that Gets <em>Under</em><br/>Your Skin.</h2>
-    <p>The signal cuts in. Audio horror, served slow.</p>
+    <h2>The signal<br/><em>found you.</em></h2>
+    <p>You're already inside it. The next story won't let you go.</p>
   </div>
   <div></div>
 </div>
@@ -1119,6 +1185,8 @@
 <script>
 (function() {
   const tv  = document.getElementById('tv');
+  const cinemaTV = document.getElementById('cinematic-tv');
+  const cinemaVid = document.getElementById('cinematic-vid');
   const body = document.body;
   if (!tv) return;
 
@@ -1133,19 +1201,6 @@
     try { flickerVidEl.pause(); } catch(e){}
   };
 
-  const flash = async (ms = 160) => {
-    if (flickerVid && flickerVidEl) {
-      try { flickerVidEl.currentTime = 0; flickerVidEl.play(); } catch(e){}
-      flickerVid.classList.add('show');
-    }
-    tv.classList.add('flick');
-    await wait(ms);
-    tv.classList.remove('flick');
-    if (flickerVid) {
-      flickerVid.classList.remove('show');
-      try { flickerVidEl.pause(); } catch(e){}
-    }
-  };
   const quickFlash = async (ms = 80) => {
     tv.classList.add('flick');
     await wait(ms);
@@ -1160,12 +1215,86 @@
   const hauntStates = ['haunt-1','haunt-2','haunt-3','haunt-4','haunt-5'];
   const clearHaunt = () => hauntStates.forEach(c => body.classList.remove(c));
 
-  // CTA click — triggers haunt → flicker → takeover
+  // ── IN-TAKEOVER: fullscreen → TV centre → channel change → 2nd fullscreen ──
+  const cinematicWrap = document.getElementById('cinematic-tv-wrap');
+  const signalEl      = document.getElementById('signal-text');
+  const overlayEl     = document.getElementById('takeover-overlay');
+
+  function showCinemaTV() {
+    cinematicWrap.style.transition = 'opacity 0.5s ease';
+    cinematicWrap.style.opacity    = '1';
+    cinematicWrap.style.pointerEvents = 'auto';
+    if (overlayEl) { overlayEl.style.transition = 'opacity 0.3s ease'; overlayEl.style.opacity = '0'; }
+  }
+  function hideCinemaTV() {
+    cinematicWrap.style.transition = 'opacity 0.3s ease';
+    cinematicWrap.style.opacity    = '0';
+    cinematicWrap.style.pointerEvents = 'none';
+    if (overlayEl) { overlayEl.style.transition = 'none'; overlayEl.style.opacity = '1'; }
+    signalEl.style.opacity = '0';
+    signalEl.style.animation = 'none';
+    if (cinemaVid) { try { cinemaVid.pause(); } catch(e){} }
+  }
+  function showSignal() {
+    signalEl.style.opacity   = '1';
+    signalEl.style.animation = 'signalBlink 1.4s steps(2) infinite';
+  }
+
+  async function tvCinematicSequence() {
+    // 1. Weak flickers — signal something is coming
+    await playFlicker(180);
+    await wait(500);
+    await playFlicker(200);
+    await wait(400);
+
+    // 2. TV fades in centred over the fullscreen video
+    if (cinemaVid) { try { cinemaVid.currentTime = 0; cinemaVid.play(); } catch(e){} }
+    cinemaTV.classList.add('show-scene');
+    showCinemaTV();
+    await wait(600);   // let fade-in land
+    showSignal();
+    await wait(800);
+
+    // 3. TV-only flickers
+    cinemaTV.classList.add('glitch');
+    await wait(350);
+    cinemaTV.classList.remove('glitch');
+    await wait(300);
+    cinemaTV.classList.add('flick');
+    await wait(120);
+    cinemaTV.classList.remove('flick');
+    await wait(250);
+
+    // 4. Channel change — static then new video tunes in
+    cinemaTV.classList.remove('show-scene');
+    await wait(500);
+    cinemaTV.classList.add('flick');
+    await wait(100);
+    cinemaTV.classList.remove('flick');
+    cinemaTV.classList.add('show-scene');
+    await wait(2800);
+
+    // 5. Flickers strengthen — building to fullscreen
+    await playFlicker(220);
+    await wait(280);
+    await playFlicker(250);
+    await wait(200);
+    await playFlicker(320);
+    await wait(150);
+
+    // 6. Full flicker → 2nd fullscreen video takes over
+    hideCinemaTV();
+    await playFlicker(500);
+    // Stays on fullscreen bg-video — permanent
+  }
+
+  // CTA click — haunt states → flicker → first fullscreen → then cinematic sequence
   let clickTriggered = false;
   async function triggerFromClick() {
     if (clickTriggered || body.classList.contains('takeover')) return;
     clickTriggered = true;
-    clearHaunt();
+
+    // Haunt states 1→5, fast
     for (let i = 0; i < hauntStates.length; i++) {
       clearHaunt();
       body.classList.add(hauntStates[i]);
@@ -1174,10 +1303,14 @@
       await wait(160);
     }
     clearHaunt();
+
+    // Flicker → first fullscreen video
     await playFlicker(480);
     body.classList.add('takeover');
-    body.classList.add('tv-hidden');
-    // stay on video — only a page refresh returns to normal
+
+    // After first video plays for a bit, start in-takeover cinematic
+    await wait(7000);
+    await tvCinematicSequence();
   }
   const horrorBtn = document.getElementById('horror-cta');
   if (horrorBtn) horrorBtn.addEventListener('click', triggerFromClick);
